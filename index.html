@@ -170,11 +170,14 @@
         if (!code) return;
 
         var cleaned = code.replace(/[^0-9]/g, '');
-        if (cleaned.length >= 10) {
+        
+        // ISBN（978 or 979 で始まる13桁）のみ受け付ける
+        if (cleaned.length === 13 && (cleaned.startsWith('978') || cleaned.startsWith('979'))) {
           isScanning = false;
           playBeep();
           sendResult(cleaned);
         }
+        // それ以外（192xxx等）は無視して読み取り続ける
       });
     }
 
