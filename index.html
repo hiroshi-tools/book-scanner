@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>📷 スキャナー</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Hiragino Maru Gothic Pro", "Rounded Mplus 1c", sans-serif;
+      background: #1a1a2e;
+      color: #fff;
+      text-align: center;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 15px;
+      touch-action: manipulation;
+    }
+
+    h2 {
+      font-size: 1.3em;
+      margin-bottom: 10px;
+    }
+
+    .mode-info {
+      font-size: 0.85em;
+      color: #aaa;
+      margin-bottom: 15px;
+    }
+
+    #reader {
+      width: 100%;
+      max-width: 350px;
+      border-radius: 15px;
+      border: 4px solid #4fc3f7;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #status {
+      margin-top: 15px;
+      font-size: 1em;
+      font-weight: bold;
+      color: #4fc3f7;
+      min-height: 1.5em;
+    }
+
+    #result-area {
+      display: none;
+      margin-top: 20px;
+      background: rgba(255,255,255,0.1);
+      padding: 15px 20px;
+      border-radius: 15px;
+      width: 100%;
+      max-width: 350px;
+    }
+
+    #result-text {
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #81c784;
+      word-break: break-all;
+    }
+
+    .btn {
+      background: #4fc3f7;
+      color: #1a1a2e;
+      border: none;
+      padding: 12px 30px;
+      border-radius: 30px;
+      font-size: 1em;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 15px;
+      transition: 0.15s;
+      touch-action: manipulation;
+    }
+    .btn:active { transform: scale(0.95); opacity: 0.8; }
+
+    .btn-danger {
+      background: #ef5350;
+      color: #fff;
+    }
+
+    .btn-retry {
+      background: #78909c;
+      color: #fff;
+      font-size: 0.85em;
+      padding: 8px 20px;
+      margin-top: 10px;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 15px;
+    }
+
+    .success-icon {
+      font-size: 3em;
+      margin-bottom: 10px;
+      animation: popIn 0.3s;
+    }
+
+    @keyframes popIn {
+      from { transform: scale(0.5); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    .footer-note {
+      margin-top: 20px;
+      font-size: 0.7em;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- スキャン中の画面 -->
+  <div id="scan-view">
+    <h2 id="scan-title">📷 バーコードスキャナー</h2>
+    <div id="mode-label" class="mode-info"></div>
+    <div id="reader"></div>
+    <div id="status">カメラ じゅんび中...</div>
+    <button class="btn btn-retry" onclick="retryCamera()">🔄 カメラがうつらないとき</button>
+    <br>
+    <button class="btn btn-danger" onclick="cancelAndClose()">✕ とじる</button>
+  </div>
+
+  <!-- 読み取り成功の画面 -->
+  <div id="result-area">
+    <div class="success-icon">✅</div>
+    <div id="result-text"></div>
+    <div class="btn-row">
+      <button class="btn" onclick="sendAndClose()">おくる</button>
+      <button class="btn btn-retry" onclick="scanAgain()">もう一度</button>
+    </div>
+  </div>
+
+  <div class="footer-note">よみとったデータは このまどを とじると おくられます</div>
+
+  <script>
+    // ==========================================
+    //  URLパラメータからモードを取得
+    // ==========================================
+    const params = new URLSearchParams(window.location.search);
+    const MODE = params.get('mode') || 'barcode'; // 'barcode' or 'qr'
+    const ORIGIN = params.get('origin') || '*';    // 送信先のorigin
+
+    let html5QrCode = null;
+    let scannedData = null;
+    let isScanning = true;
+
+    // ==========================================
+    //  初期表示
+    // ==========================================
+    if (MODE === 'qr') {
+      document.getElementById('scan-title').innerText = '📷 QRコードリーダー';
+      document.getElementById('mode-label').innerText = 'QRコードを カメラにうつしてね';
+    } else {
+      document.getElementById('scan-title').innerText = '📷 バーコードスキャナー';
+      document.getElementById('mode-label').innerText = '本のバーコードを カメラにうつしてね';
+    }
+
+    // ==========================================
+    //  カメラ起動
+    // ==========================================
+    window.onload = function() {
+      startCamera();
+    };
+
+    function startCamera() {
+      if (html5QrCode) return;
+
+      html5QrCode = new Html5Qrcode("reader");
+
+      const config = MODE === 'qr'
+        ? { fps: 10, qrbox: { width: 200, height: 200 } }
+        : { fps: 10, qrbox: { width: 280, height: 120 } };
+
+      html5QrCode.start(
+        { facingMode: "environment" },
+        config,
+        onScanSuccess
+      ).then(() => {
+        document.getElementById('status').innerText =
+          MODE === 'qr' ? 'QRをかざしてね' : '本のバーコードをうつしてね';
+      }).catch(err => {
+        console.error("Camera error:", err);
+        document.getElementById('status').innerText = 'カメラが使えません 😢';
+        html5QrCode = null;
+      });
+    }
+
+    // ==========================================
+    //  読み取り成功時
+    // ==========================================
+    function onScanSuccess(decodedText) {
+      if (!isScanning) return;
+
+      if (MODE === 'qr') {
+        // QRモード：u- で始まるテキストを期待
+        if (decodedText.startsWith('u-')) {
+          isScanning = false;
+          scannedData = decodedText.replace('u-', '');
+          playBeep();
+          showResult('ID: ' + scannedData);
+          // QRの場合は即送信して閉じる
+          setTimeout(sendAndClose, 500);
+        }
+      } else {
+        // バーコードモード：10桁以上の数字（ISBN）
+        const cleaned = decodedText.replace(/[^0-9]/g, '');
+        if (cleaned.length >= 10) {
+          isScanning = false;
+          scannedData = cleaned;
+          playBeep();
+          showResult('ISBN: ' + scannedData);
+          // バーコードも即送信して閉じる
+          setTimeout(sendAndClose, 500);
+        }
+      }
+    }
+
+    // ==========================================
+    //  結果表示
+    // ==========================================
+    function showResult(text) {
+      document.getElementById('scan-view').style.display = 'none';
+      document.getElementById('result-area').style.display = 'block';
+      document.getElementById('result-text').innerText = text;
+
+      // カメラ停止
+      stopCamera();
+    }
+
+    // ==========================================
+    //  データ送信 & 閉じる
+    // ==========================================
+    function sendAndClose() {
+      if (!scannedData) return;
+
+      const message = {
+        type: MODE === 'qr' ? 'qr-login' : 'barcode-scan',
+        data: scannedData
+      };
+
+      // 親ウィンドウにデータを送信
+      if (window.opener) {
+        window.opener.postMessage(message, '*');
+      }
+
+      // 少し待ってから閉じる（postMessageが届くのを確実にするため）
+      setTimeout(() => {
+        window.close();
+      }, 300);
+    }
+
+    // ==========================================
+    //  キャンセル
+    // ==========================================
+    function cancelAndClose() {
+      if (window.opener) {
+        window.opener.postMessage({ type: 'scanner-cancel' }, '*');
+      }
+      stopCamera();
+      window.close();
+    }
+
+    // ==========================================
+    //  もう一度スキャン
+    // ==========================================
+    function scanAgain() {
+      scannedData = null;
+      isScanning = true;
+      document.getElementById('scan-view').style.display = 'flex';
+      document.getElementById('result-area').style.display = 'none';
+      startCamera();
+    }
+
+    // ==========================================
+    //  カメラ再起動
+    // ==========================================
+    function retryCamera() {
+      document.getElementById('status').innerText = 'カメラをなおしています...';
+      stopCamera();
+      setTimeout(() => {
+        startCamera();
+      }, 500);
+    }
+
+    // ==========================================
+    //  カメラ停止
+    // ==========================================
+    function stopCamera() {
+      if (html5QrCode) {
+        html5QrCode.stop().then(() => {
+          try { html5QrCode.clear(); } catch(e) {}
+          html5QrCode = null;
+        }).catch(() => {
+          try { html5QrCode.clear(); } catch(e) {}
+          html5QrCode = null;
+        });
+      }
+    }
+
+    // ==========================================
+    //  効果音
+    // ==========================================
+    function playBeep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(880, ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1);
+        g.gain.setValueAtTime(0.15, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start();
+        o.stop(ctx.currentTime + 0.4);
+      } catch(e) {}
+    }
+
+    // ==========================================
+    //  ページを離れるとき
+    // ==========================================
+    window.addEventListener('beforeunload', () => {
+      stopCamera();
+    });
+  </script>
+</body>
+</html>
