@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>📷 スキャナー</title>
-  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" type="text/javascript"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -178,24 +178,77 @@
     function startCamera() {
       if (html5QrCode) return;
 
-      html5QrCode = new Html5Qrcode("reader");
+      if (MODE === 'qr') {
+        // QRモード：通常設定
+        html5QrCode = new Html5Qrcode("reader");
+        const config = { fps: 15, qrbox: { width: 220, height: 220 } };
 
-      const config = MODE === 'qr'
-        ? { fps: 10, qrbox: { width: 200, height: 200 } }
-        : { fps: 10, qrbox: { width: 280, height: 120 } };
+        html5QrCode.start(
+          { facingMode: "environment" },
+          config,
+          onScanSuccess
+        ).then(() => {
+          document.getElementById('status').innerText = 'QRをかざしてね';
+        }).catch(err => {
+          console.error("Camera error:", err);
+          document.getElementById('status').innerText = 'カメラが使えません 😢';
+          html5QrCode = null;
+        });
 
-      html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        onScanSuccess
-      ).then(() => {
-        document.getElementById('status').innerText =
-          MODE === 'qr' ? 'QRをかざしてね' : '本のバーコードをうつしてね';
-      }).catch(err => {
-        console.error("Camera error:", err);
-        document.getElementById('status').innerText = 'カメラが使えません 😢';
-        html5QrCode = null;
-      });
+      } else {
+        // バーコードモード：高速スキャン設定
+        html5QrCode = new Html5Qrcode("reader", {
+          // EAN-13 と EAN-8 だけに限定（余計な解析をスキップ）
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8
+          ],
+          verbose: false
+        });
+
+        const config = {
+          fps: 20,                              // 高速スキャン
+          qrbox: { width: 300, height: 140 },   // 読み取りエリアを広めに
+          disableFlip: true,                     // 左右反転処理をスキップ
+          aspectRatio: 1.5                       // 横長カメラ
+        };
+
+        // HD解像度を明示指定してピントを改善
+        html5QrCode.start(
+          {
+            facingMode: "environment",
+            advanced: [
+              { width: { ideal: 1280 } },
+              { height: { ideal: 720 } }
+            ]
+          },
+          config,
+          onScanSuccess
+        ).then(() => {
+          document.getElementById('status').innerText = '本のバーコードをうつしてね';
+        }).catch(err => {
+          console.error("Camera error (HD):", err);
+          // HD解像度が使えない場合、デフォルトでリトライ
+          html5QrCode = new Html5Qrcode("reader", {
+            formatsToSupport: [
+              Html5QrcodeSupportedFormats.EAN_13,
+              Html5QrcodeSupportedFormats.EAN_8
+            ],
+            verbose: false
+          });
+          html5QrCode.start(
+            { facingMode: "environment" },
+            config,
+            onScanSuccess
+          ).then(() => {
+            document.getElementById('status').innerText = '本のバーコードをうつしてね';
+          }).catch(err2 => {
+            console.error("Camera error (fallback):", err2);
+            document.getElementById('status').innerText = 'カメラが使えません 😢';
+            html5QrCode = null;
+          });
+        });
+      }
     }
 
     // ==========================================
